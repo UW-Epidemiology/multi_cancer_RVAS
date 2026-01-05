@@ -1,0 +1,178 @@
+---
+title: "Network representation of SAIGE burden test and carrier status results for 33 cancer-associated genes across individual cancer types "
+author: "Austin Hammermeister Suger"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      comment = "", fig.path = 'figures/networks/', dev='jpeg',
+                      cache = FALSE)
+knitr::opts_knit$set(eval.after = "fig.cap")
+library(pacman)
+
+p_load(rlang, tidyverse, data.table,
+       reactable, R.utils,
+       ggplot2, ggrepel,
+       stringi,RNOmni,
+       RColorBrewer,
+       igraph,
+       ggraph,
+       tidygraph,
+       ggnewscale,
+       scales,
+       colorspace)
+```
+
+```{r load data}
+single_burden_results = fread("/lindstroem/austin_working/Dissertation/Meta/Aim1/individual_cancers/individual_cancers_meta.txt") %>%
+  filter(Group %in% c("pLoF","missense")) %>%
+  mutate(Burden_OR = exp(BETA),
+         Burden_OR_CI_LB = exp(BETA_CI_LB),
+         Burden_OR_CI_UP = exp(BETA_CI_UP),
+         Burden_P = P) %>%
+  select(c(Gene, Group, Cancer, Burden_OR, Burden_OR_CI_LB, Burden_OR_CI_UP, Burden_P))
+single_carrier_results = fread("/lindstroem/austin_working/Dissertation/Meta/Aim1/individual_cancers/individual_cancers_carrier_status_meta.txt") %>%
+  select(c(Gene, Group, Cancer, Carrier_OR, Carrier_OR_CI_LB, Carrier_OR_CI_UP, Carrier_P))
+
+burden_carrier = merge(single_burden_results, single_carrier_results,
+                       by = c("Gene", "Cancer", "Group"))
+
+
+```
+
+```{r Network, width=20, height=20, dpi=800}
+# ---- User-defined thresholds and colors ----
+custom_breaks <- c(0.5, 0.8, 0.99, 1, 1.01, 2, 5, 10, 35)
+custom_colors <- c("#2E8B57", "#00CD66", "black", "black", "#27408B", "#E6B800", "#FF5C33", "#D40000")
+centrality_breaks <- c(1, 3, 6, 10)
+
+if (length(custom_colors) != length(custom_breaks) - 1) {
+  stop("Number of custom colors must equal length(custom_breaks) - 1")
+}
+
+# ---- Prepare edges ----
+edges <- burden_carrier %>%
+  filter(
+    Burden_P < (0.05 / (33 * 6)),
+    Group %in% c("pLoF", "missense")
+  ) %>%
+  mutate(
+    Cancer = str_to_sentence(Cancer),
+    Cancer = ifelse(Cancer == "Hl", "HL", Cancer),
+    Cancer = ifelse(Cancer == "Nhl", "NHL", Cancer),
+    Cancer = ifelse(Cancer == "Non_melanoma", "NMSC", Cancer)
+
+  ) %>%
+  select(from = Gene, to = Cancer, Group, Carrier_OR)
+
+# ---- Custom binning ----
+edges <- edges %>%
+  mutate(
+    OR_bin = cut(
+      Carrier_OR,
+      breaks = custom_breaks,
+      include.lowest = TRUE,
+      right = FALSE
+    )
+  )
+
+# ---- Function to build a network ----
+build_network <- function(edge_subset) {
+  g <- graph_from_data_frame(edge_subset, directed = FALSE)
+  tg <- as_tbl_graph(g)
+  
+  tg <- tg %>%
+    activate(nodes) %>%
+    mutate(
+      type = bipartite_mapping(tg)$type,
+      is_cancer = !type,
+      degree = centrality_degree(mode = "all")
+    ) %>%
+    activate(edges) %>%
+    mutate(
+      OR_bin = edge_subset$OR_bin
+    )
+  
+  layout <- create_layout(tg, layout = "stress")
+  layout$x <- layout$x * 3
+  layout$y <- layout$y * 3
+  
+  palette_colors <- setNames(custom_colors, levels(edge_subset$OR_bin))
+  
+  p <- ggraph(layout) +
+    geom_edge_link(
+      aes(color = OR_bin),
+      width = 1,
+      alpha = 0.75
+    ) +
+    scale_edge_color_manual(
+      name = "Binary rare variant status OR",
+      values = palette_colors
+    ) +
+    geom_node_point(
+      aes(shape = is_cancer, size = degree),
+      fill = "white",
+      color = "black",
+      stroke = 0.5
+    ) +
+    scale_size_continuous(
+      name = "# of burden test associations",
+      range = c(2, 6),
+      breaks = centrality_breaks,
+      limits = c(min(V(tg)$degree), max(V(tg)$degree))
+    ) +
+    geom_node_text(
+      aes(
+        label = name,
+        color = ifelse(is_cancer, "black", "#8B008B")
+      ),
+      repel = TRUE,
+      size = 3.5,
+      box.padding = 1.2,
+      point.padding = 0.8,
+      max.overlaps = Inf,
+      segment.size = 0.2,
+      segment.color = "grey60",
+      show.legend = FALSE
+    ) +
+    scale_color_identity(guide = "none") +
+    scale_shape_manual(values = c("FALSE" = 21, "TRUE" = 15), guide = "none") +
+    coord_equal() +
+    theme_void() +
+    theme(
+      legend.position = "bottom",
+      legend.title = element_text(size = 14),
+      legend.text = element_text(size = 12)
+    )
+
+  return(p)
+}
+
+# ---- Create separate panels ----
+edges_pLoF <- edges %>% filter(Group == "pLoF")
+edges_missense <- edges %>% filter(Group == "missense")
+
+plot_pLoF <- build_network(edges_pLoF)
+plot_missense <- build_network(edges_missense)
+
+# Remove legends from individual plots
+plot_pLoF_nolegend <- plot_pLoF + theme(legend.position = "none")
+
+# ---- Combine panels ----
+combined_networks <- plot_grid(
+  plot_pLoF_nolegend,
+  plot_missense,
+  ncol = 1,
+  labels = c("A", "B"),
+  label_size = 20
+)
+
+# ---- Save final figure ----
+ggsave(
+  "./figures/networks/Figure3_combined.jpeg",
+  combined_networks,
+  width = 14, height = 20, dpi = 800
+)
+```

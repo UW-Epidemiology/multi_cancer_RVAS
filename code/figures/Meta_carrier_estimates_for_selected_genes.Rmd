@@ -1,0 +1,195 @@
+---
+title: "Forest plots of burden and carrier OR estimates for selected genes "
+author: "Austin Hammermeister Suger"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      comment = "", fig.path = 'figures/', dev='jpeg',
+                      cache = FALSE)
+knitr::opts_knit$set(eval.after = "fig.cap")
+library(pacman)
+
+p_load(rlang, tidyverse, data.table,
+       reactable, R.utils,
+       ggplot2, ggrepel,
+       fastqq, stringi, ggsci,
+       cowplot, ggtext, RColorBrewer,
+       forcats)
+```
+
+```{r data}
+single_burden_results = fread("/lindstroem/austin_working/Dissertation/Meta/Aim1/individual_cancers/individual_cancers_meta.txt") %>%
+  filter(Group %in% c("pLoF","missense")) %>%
+  mutate(Burden_OR = exp(BETA),
+         Burden_OR_CI_LB = exp(BETA_CI_LB),
+         Burden_OR_CI_UP = exp(BETA_CI_UP),
+         Burden_P = P) %>%
+  select(c(Gene, Group, Cancer, Burden_OR, Burden_OR_CI_LB, Burden_OR_CI_UP, Burden_P))
+single_carrier_results = fread("/lindstroem/austin_working/Dissertation/Meta/Aim1/individual_cancers/individual_cancers_carrier_status_meta.txt") %>%
+  select(c(Gene, Group, Cancer, Carrier_OR, Carrier_OR_CI_LB, Carrier_OR_CI_UP, Carrier_P))
+
+burden_carrier = merge(single_burden_results, single_carrier_results,
+                       by = c("Gene", "Cancer", "Group"))
+
+results <- burden_carrier %>%
+  mutate(
+    Cancer = ifelse(Cancer == "HL", "Hodgkin's lymphoma", Cancer),
+    Cancer = ifelse(Cancer == "NHL", "Non-hodgkin's lymphoma", Cancer),
+    Cancer = ifelse(Cancer == "non_melanoma", "Non-melanoma skin", Cancer),
+    Cancer = str_to_sentence(Cancer)
+  ) %>%
+  filter(Burden_P < 0.05, Carrier_P < 0.05)
+
+```
+
+
+```{r Carrier ORs by gene name, dpi = 1200}
+df_1 <- results %>%
+  filter(Group == "pLoF" | Group %in% "missense") %>%
+  filter(Gene %in% c("ASXL1", "ATM", "BRCA1", "BRCA2")) %>%
+  mutate(Gene = fct_drop(as.factor(Gene)))
+
+df_2 <- results %>%
+  filter(Group == "pLoF" | Group %in% "missense") %>%
+  filter(Gene %in% c("CDKN2A", "CHEK2", "DNMT3A", "MLH1")) %>%
+  mutate(Gene = fct_drop(as.factor(Gene)))
+
+df_3 <- results %>%
+  filter(Group == "pLoF" | Group %in% "missense") %>%
+  filter(Gene %in% c("MSH6", "PALB2", "POT1", "PPM1D")) %>%
+  mutate(Gene = fct_drop(as.factor(Gene)))
+
+df_4 <- results %>%
+  filter(Group == "pLoF" | Group %in% "missense") %>%
+  filter(Gene %in% c("RTEL1", "SAMHD1", "TET2", "TP53")) %>%
+  mutate(Gene = fct_drop(as.factor(Gene)))
+
+add_offsets <- function(df, offset_fraction = 0.8) {
+
+  gene_info <- df %>%
+    count(Gene, name = "n_assoc") %>%
+    arrange(Gene) %>%
+    mutate(
+      gene_base = lag(cumsum(n_assoc), default = 0)   # starting y of each gene block
+    )
+
+  df %>%
+    left_join(gene_info, by = "Gene") %>%
+    group_by(Gene) %>%
+    arrange(Carrier_OR, .by_group = TRUE) %>%
+    mutate(
+      rank_within = row_number(),
+      rank_centered = rank_within - (n_assoc + 1) / 2,
+
+      offset = if_else(
+        n_assoc > 1,
+        (rank_centered / max(abs(rank_centered))) * (offset_fraction * (n_assoc / 2)),
+        0
+      ),
+
+      y_pos = gene_base + (n_assoc / 2) + offset
+    ) %>%
+    ungroup()
+}
+
+df_1 = add_offsets(df_1)
+df_2 = add_offsets(df_2)
+df_3 = add_offsets(df_3)
+df_4 = add_offsets(df_4)
+
+make_forest_panel <- function(df, show_x = FALSE, show_y = TRUE) {
+  
+  gene_labels <- df %>%
+    distinct(Gene, n_assoc, gene_base) %>%
+    arrange(Gene) %>%
+    mutate(label_pos = ((sum(n_assoc)-5) - (cumsum(n_assoc)+5)  + (n_assoc / 2)))
+
+  # compute cutoff for positioning cancer labels
+  x_max <- max(df$Carrier_OR_CI_UP, na.rm = TRUE)
+  cutoff <- 0.95 * x_max
+
+
+  df <- df %>%
+    mutate(
+      label_x = if_else(Carrier_OR_CI_UP > cutoff, Carrier_OR_CI_LB, Carrier_OR_CI_UP),
+      label_hjust = if_else(Carrier_OR_CI_UP > cutoff, 1.1, -0.3)
+    )
+
+  p <- ggplot(df) +
+    geom_errorbarh(
+      aes(
+        y = y_pos,
+        xmin = Carrier_OR_CI_LB,
+        xmax = Carrier_OR_CI_UP,
+      ),
+      color = "black",
+      height = 0.2
+    ) +
+    geom_point(
+      aes(
+        x = Carrier_OR,
+        y = y_pos,
+        color = Group,
+      ),
+      size =1.5
+    ) +
+    geom_text(
+      aes(x = label_x, y = y_pos, label = Cancer, hjust = label_hjust),
+      color = "black",
+      size = 2
+    ) +
+    geom_vline(xintercept = 1, linetype = "dashed") +
+    scale_x_log10(
+      breaks = c(0.25, 0.5, 1, 2, 5, 10, 20, 50, 100),
+      labels = c("0.25","0.5","1","2","5","10","20","50","100")
+    ) +
+  scale_y_reverse(
+    breaks = max(gene_labels$label_pos) - gene_labels$label_pos + 1,
+    labels = gene_labels$Gene,
+    expand = expansion(add = 0.5)
+  )+
+
+    scale_color_manual(values = c("darkblue", "darkred"))+
+    theme_classic(base_size = 20) +
+    theme(
+      axis.text.y = if (show_y) element_text(size = 12) else element_blank(),
+      axis.title.y = if (show_y) element_text(size = 16) else element_blank(),
+      axis.title.x = if (show_x) element_text(size = 16) else element_blank(),
+      legend.position = "none"
+    )
+
+  if (show_x) p <- p + xlab("Binary rare variant status OR")
+  if (show_y) p <- p + ylab("Gene")
+
+  p
+}
+
+plot_df1 <- make_forest_panel(df_1, show_x = TRUE, show_y = TRUE)
+plot_df2 <- make_forest_panel(df_2, show_x = TRUE, show_y = TRUE)
+plot_df3 <- make_forest_panel(df_3, show_x = TRUE, show_y = TRUE)
+plot_df4 <- make_forest_panel(df_4, show_x = TRUE, show_y = TRUE)
+
+
+combined_plot <- plot_grid(
+  plot_df1, 
+  plot_df2,
+  plot_df3, 
+  plot_df4,
+  labels = c("A", "B", "C", "D"),
+  label_size = 20,
+  ncol = 2,
+  align = "hv"
+)
+
+
+
+ggsave(
+  "./figures/Figure_4.jpeg",
+  combined_plot,
+  width = 12, height = 16, dpi = 600
+)
+
+```

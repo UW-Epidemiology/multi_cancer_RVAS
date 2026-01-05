@@ -1,0 +1,127 @@
+---
+title: "Overall summary of burden test results for individual cancers"
+author: "Austin Hammermeister Suger"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      comment = "", fig.path = 'figures/forest/', dev='jpeg',
+                      cache = FALSE)
+knitr::opts_knit$set(eval.after = "fig.cap")
+library(pacman)
+
+p_load(rlang, tidyverse, data.table,
+       ggrepel)
+
+p_load_gh("roman-tremmel/ggfastman")
+```
+
+```{r data}
+single_burden_results = fread("/lindstroem/austin_working/Dissertation/Meta/Aim1/individual_cancers/individual_cancers_meta.txt") %>%
+  mutate(Burden_OR = exp(BETA),
+         Burden_OR_CI_LB = exp(BETA_CI_LB),
+         Burden_OR_CI_UP = exp(BETA_CI_UP),
+         Burden_P = P,
+    Cancer = str_to_sentence(Cancer),
+    Cancer = ifelse(Cancer == "Hl", "HL", Cancer),
+    Cancer = ifelse(Cancer == "Nhl", "NHL", Cancer),
+    Cancer = ifelse(Cancer == "Non_melanoma", "NMSC", Cancer)) %>%
+  select(c(Gene, Group, Cancer, Burden_OR, Burden_OR_CI_LB, Burden_OR_CI_UP, Burden_P, N_case_meta)) %>%
+  filter(Group %in% c("pLoF","missense"))
+```
+
+```{r plot}
+single_burden_results <- single_burden_results %>%
+  group_by(Cancer) %>%
+  mutate(
+    n_sig_p05 = sum(Burden_P < 0.05, na.rm = TRUE),
+    n_sig_p00025 = sum(Burden_P < 0.00025, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  mutate(
+    logp = -log10(Burden_P),
+    Cancer_label = paste0(
+      Cancer,
+      " (",
+      trimws(format(N_case_meta, big.mark = ",")),
+      "; ",
+      n_sig_p05,
+      "/",
+      n_sig_p00025,
+      ")"
+    )
+  )
+plot <- ggplot(single_burden_results, aes(x = Cancer_label, y = logp)) +
+  geom_point(
+    aes(color = Cancer, shape = Group),
+    position = position_jitter(width = 0.25, height = 0),
+    alpha = 0.8, size = 3
+  ) +
+  scale_shape_manual(
+    values = c(
+      "missense" = 1,  
+      "pLoF"     = 16  
+    )
+  )+
+  geom_text_repel(
+    data = single_burden_results %>%
+      filter(Burden_P < 0.05) %>%
+      group_by(Cancer) %>%
+      slice_min(order_by = Burden_P,
+                n = 3) %>%
+      ungroup(),
+    aes(label = Gene),
+    size = 3.5,
+    max.overlaps = 50,
+    box.padding = 0.8,
+    point.padding = 0.5,
+    segment.color = "black",
+    color = "black"
+  ) +
+  geom_hline(
+    yintercept = -log10(0.00025),
+    color = "red",
+    linetype = "dashed",
+    linewidth = 0.8
+  ) +
+  geom_hline(
+    yintercept = -log10(0.05),
+    color = "blue",
+    linetype = "dotted",
+    linewidth = 0.8
+  ) +
+  theme_classic(base_size = 16) +
+  labs(
+    x = "Cancer (N cases; N genes p < 0.05 / p < 0.00025)",
+    shape = "Annotation-based set"
+  ) +
+scale_y_continuous(
+  name = expression(-log[10](p)),
+  trans = "sqrt",
+  breaks = c(0, 1, 2, 4, 6, 8, 10, 20, 40, 80)
+)+
+  theme(
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.background = element_rect(fill = "gray90", color = NA),
+    strip.text = element_text(face = "bold"),
+    legend.position = "bottom",
+    legend.title = element_text(size = 14),
+    legend.text = element_text(size = 12)
+  ) +
+  guides(color = "none")
+
+ggsave(
+  "./figures/Figure2.svg",
+  plot,
+  width = 16, height = 10, dpi = 1000
+)
+
+ggsave(
+  "./figures/Figure2.jpeg",
+  plot,
+  width = 16, height = 10, dpi = 1000
+)
+```

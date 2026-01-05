@@ -1,0 +1,313 @@
+---
+title: "Meta-analysis cancer group Manhattan plots"
+author: "Austin Hammermeister Suger"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      comment = "", fig.path = 'figures/', dev='jpeg',
+                      cache = FALSE)
+knitr::opts_knit$set(eval.after = "fig.cap")
+library(pacman)
+
+p_load(rlang, tidyverse, data.table,
+       reactable, R.utils,
+       ggplot2, ggrepel,
+       stringi, topr,
+       patchwork)
+
+chr_sizes <- tibble(
+  CHR = c(1:22, 23, 24),
+  CHR_SIZE = c(248956422, 242193529, 198295559, 190214555, 181538259, 170805979, 159345973, 
+               145138636, 138394717, 133797422, 135086622, 133275309, 114364328, 107043718, 
+               101991189, 90338345, 83257441, 80373285, 64444167, 58617616, 50818468, 46709983, 
+               156040895, 57227415)  
+)
+
+sig_thresh = 0.05 / (17389*6)
+```
+
+# pLoF
+
+```{r load_data_pLoF}
+ pLoF_ectoderm_results = fread(paste0("/lindstroem/austin_working/Dissertation/Meta/Aim1/cancer_groups/pLoF_meta_ectoderm.txt"))
+ pLoF_ectoderm_results = pLoF_ectoderm_results %>%
+    left_join(chr_sizes, by = "CHR") %>%  
+  group_by(CHR) %>%
+  mutate(BP = seq(from = 1, by = CHR_SIZE[1] / (n() * 2), length.out = n())) %>%
+  ungroup() %>%
+  mutate(SNP = Gene)
+ 
+ pLoF_mesoderm_results = fread(paste0("/lindstroem/austin_working/Dissertation/Meta/Aim1/cancer_groups/pLoF_meta_mesoderm.txt"))
+ pLoF_mesoderm_results = pLoF_mesoderm_results %>%
+    left_join(chr_sizes, by = "CHR") %>%  
+  group_by(CHR) %>%
+  mutate(BP = seq(from = 1, by = CHR_SIZE[1] / (n() * 2), length.out = n())) %>%
+  ungroup() %>%
+  mutate(SNP = Gene) 
+ 
+ pLoF_endoderm_results = fread(paste0("/lindstroem/austin_working/Dissertation/Meta/Aim1/cancer_groups/pLoF_meta_endoderm.txt"))
+ pLoF_endoderm_results = pLoF_endoderm_results %>%
+    left_join(chr_sizes, by = "CHR") %>%  
+  group_by(CHR) %>%
+  mutate(BP = seq(from = 1, by = CHR_SIZE[1] / (n() * 2), length.out = n())) %>%
+  ungroup() %>%
+  mutate(SNP = Gene)
+ 
+pLoF_hormone_results = fread(paste0("/lindstroem/austin_working/Dissertation/Meta/Aim1/cancer_groups/pLoF_meta_hormone.txt"))
+ pLoF_hormone_results = pLoF_hormone_results %>%
+    left_join(chr_sizes, by = "CHR") %>%  
+  group_by(CHR) %>%
+  mutate(BP = seq(from = 1, by = CHR_SIZE[1] / (n() * 2), length.out = n())) %>%
+  ungroup() %>%
+  mutate(SNP = Gene)
+ 
+pLoF_smoking_results = fread(paste0("/lindstroem/austin_working/Dissertation/Meta/Aim1/cancer_groups/pLoF_meta_smoking.txt"))
+ pLoF_smoking_results = pLoF_smoking_results %>%
+    left_join(chr_sizes, by = "CHR") %>%  
+  group_by(CHR) %>%
+  mutate(BP = seq(from = 1, by = CHR_SIZE[1] / (n() * 2), length.out = n())) %>%
+  ungroup() %>%
+  mutate(SNP = Gene)
+ 
+pLoF_infectious_results = fread(paste0("/lindstroem/austin_working/Dissertation/Meta/Aim1/cancer_groups/pLoF_meta_infectious.txt"))
+ pLoF_infectious_results = pLoF_infectious_results %>%
+    left_join(chr_sizes, by = "CHR") %>%  
+  group_by(CHR) %>%
+  mutate(BP = seq(from = 1, by = CHR_SIZE[1] / (n() * 2), length.out = n())) %>%
+  ungroup() %>%
+  mutate(SNP = Gene)
+ 
+```
+
+```{r gene Manhattan pLoF, dpi=1000, width = 24, height = 16}
+# Name the datasets to control order
+pLoF_dataset_list <- list(
+  "Ectoderm-derived tissue cancers" = pLoF_ectoderm_results,
+  "Mesoderm-derived tissue cancers" = pLoF_mesoderm_results,
+  "Endoderm-derived tissue cancers" = pLoF_endoderm_results,
+  "Hormone-associated cancers" = pLoF_hormone_results,
+  "Smoking-associated cancers" = pLoF_smoking_results,
+  "Infectious agent-associated cancers" = pLoF_infectious_results
+)
+
+# Use the names as legend labels, order is preserved
+dataset_names <- names(pLoF_dataset_list)
+
+# Plot
+pLoF = topr::manhattan(
+  pLoF_dataset_list,
+  ntop = 6,
+  sign_thresh = round(sig_thresh, 9),
+  label_size = 3,
+  shape = 16,
+color = c("firebrick3",   
+            "darkorange",   
+            "dodgerblue3",  
+            "darkgreen",    
+            "magenta3",   
+            "black"),
+  sign_thresh_label_size = 0,
+  region_size = 10,
+  downsample_prop = 0.3,
+  size = 1.5,
+  show_legend = FALSE,
+even_no_chr_lightness = 0.7
+
+)
+
+pLoF
+```
+
+# Missense
+
+```{r load_data_missense}
+ mis_ectoderm_results = fread(paste0("/lindstroem/austin_working/Dissertation/Meta/Aim1/cancer_groups/missense_meta_ectoderm.txt"))
+ mis_ectoderm_results = mis_ectoderm_results %>%
+    left_join(chr_sizes, by = "CHR") %>%  
+  group_by(CHR) %>%
+  mutate(BP = seq(from = 1, by = CHR_SIZE[1] / (n() * 2), length.out = n())) %>%
+  ungroup() %>%
+  mutate(SNP = Gene)
+ 
+ mis_mesoderm_results = fread(paste0("/lindstroem/austin_working/Dissertation/Meta/Aim1/cancer_groups/missense_meta_mesoderm.txt"))
+ mis_mesoderm_results = mis_mesoderm_results %>%
+    left_join(chr_sizes, by = "CHR") %>%  
+  group_by(CHR) %>%
+  mutate(BP = seq(from = 1, by = CHR_SIZE[1] / (n() * 2), length.out = n())) %>%
+  ungroup() %>%
+  mutate(SNP = Gene) 
+ 
+ mis_endoderm_results = fread(paste0("/lindstroem/austin_working/Dissertation/Meta/Aim1/cancer_groups/missense_meta_endoderm.txt"))
+ mis_endoderm_results = mis_endoderm_results %>%
+    left_join(chr_sizes, by = "CHR") %>%  
+  group_by(CHR) %>%
+  mutate(BP = seq(from = 1, by = CHR_SIZE[1] / (n() * 2), length.out = n())) %>%
+  ungroup() %>%
+  mutate(SNP = Gene)
+ 
+mis_hormone_results = fread(paste0("/lindstroem/austin_working/Dissertation/Meta/Aim1/cancer_groups/missense_meta_hormone.txt"))
+ mis_hormone_results = mis_hormone_results %>%
+    left_join(chr_sizes, by = "CHR") %>%  
+  group_by(CHR) %>%
+  mutate(BP = seq(from = 1, by = CHR_SIZE[1] / (n() * 2), length.out = n())) %>%
+  ungroup() %>%
+  mutate(SNP = Gene)
+ 
+mis_smoking_results = fread(paste0("/lindstroem/austin_working/Dissertation/Meta/Aim1/cancer_groups/missense_meta_smoking.txt"))
+ mis_smoking_results = mis_smoking_results %>%
+    left_join(chr_sizes, by = "CHR") %>%  
+  group_by(CHR) %>%
+  mutate(BP = seq(from = 1, by = CHR_SIZE[1] / (n() * 2), length.out = n())) %>%
+  ungroup() %>%
+  mutate(SNP = Gene)
+ 
+mis_infectious_results = fread(paste0("/lindstroem/austin_working/Dissertation/Meta/Aim1/cancer_groups/missense_meta_infectious.txt"))
+ mis_infectious_results = mis_infectious_results %>%
+    left_join(chr_sizes, by = "CHR") %>%  
+  group_by(CHR) %>%
+  mutate(BP = seq(from = 1, by = CHR_SIZE[1] / (n() * 2), length.out = n())) %>%
+  ungroup() %>%
+  mutate(SNP = Gene)
+ 
+```
+
+```{r gene Manhattan missense, dpi=1000, width = 24, height = 16}
+# Name the datasets to control order
+mis_dataset_list <- list(
+  "Ectoderm-derived tissue cancers" = mis_ectoderm_results,
+  "Mesoderm-derived tissue cancers" = mis_mesoderm_results,
+  "Endoderm-derived tissue cancers" = mis_endoderm_results,
+  "Hormone-associated cancers" = mis_hormone_results,
+  "Smoking-associated cancers" = mis_smoking_results,
+  "Infectious agent-associated cancers" = mis_infectious_results
+)
+
+# Use the names as legend labels, order is preserved
+dataset_names <- names(mis_dataset_list)
+
+# Plot
+mis = topr::manhattan(
+  mis_dataset_list,
+  ntop = 6,
+  sign_thresh = round(sig_thresh, 9),
+  label_size = 3,
+  shape = 16,
+color = c("firebrick3",   
+            "darkorange",   
+            "dodgerblue3",  
+            "darkgreen",    
+            "magenta3",   
+            "black"),        
+  sign_thresh_label_size = 0,
+  region_size = 10,
+  downsample_prop = 0.3,
+  size = 1.5,
+  show_legend = FALSE,
+even_no_chr_lightness = 0.7
+)
+
+mis
+```
+
+# pLoF + missense
+
+```{r load_data_pLoF_missense}
+ pLoF_mis_ectoderm_results = fread(paste0("/lindstroem/austin_working/Dissertation/Meta/Aim1/cancer_groups/pLoF_missense_meta_ectoderm.txt"))
+ pLoF_mis_ectoderm_results = pLoF_mis_ectoderm_results %>%
+    left_join(chr_sizes, by = "CHR") %>%  
+  group_by(CHR) %>%
+  mutate(BP = seq(from = 1, by = CHR_SIZE[1] / (n() * 2), length.out = n())) %>%
+  ungroup() %>%
+  mutate(SNP = Gene)
+ 
+ pLoF_mis_mesoderm_results = fread(paste0("/lindstroem/austin_working/Dissertation/Meta/Aim1/cancer_groups/pLoF_missense_meta_mesoderm.txt"))
+ pLoF_mis_mesoderm_results = pLoF_mis_mesoderm_results %>%
+    left_join(chr_sizes, by = "CHR") %>%  
+  group_by(CHR) %>%
+  mutate(BP = seq(from = 1, by = CHR_SIZE[1] / (n() * 2), length.out = n())) %>%
+  ungroup() %>%
+  mutate(SNP = Gene) 
+ 
+ pLoF_mis_endoderm_results = fread(paste0("/lindstroem/austin_working/Dissertation/Meta/Aim1/cancer_groups/pLoF_missense_meta_endoderm.txt"))
+ pLoF_mis_endoderm_results = pLoF_mis_endoderm_results %>%
+    left_join(chr_sizes, by = "CHR") %>%  
+  group_by(CHR) %>%
+  mutate(BP = seq(from = 1, by = CHR_SIZE[1] / (n() * 2), length.out = n())) %>%
+  ungroup() %>%
+  mutate(SNP = Gene)
+ 
+pLoF_mis_hormone_results = fread(paste0("/lindstroem/austin_working/Dissertation/Meta/Aim1/cancer_groups/pLoF_missense_meta_hormone.txt"))
+ pLoF_mis_hormone_results = pLoF_mis_hormone_results %>%
+    left_join(chr_sizes, by = "CHR") %>%  
+  group_by(CHR) %>%
+  mutate(BP = seq(from = 1, by = CHR_SIZE[1] / (n() * 2), length.out = n())) %>%
+  ungroup() %>%
+  mutate(SNP = Gene)
+ 
+pLoF_mis_smoking_results = fread(paste0("/lindstroem/austin_working/Dissertation/Meta/Aim1/cancer_groups/pLoF_missense_meta_smoking.txt"))
+ pLoF_mis_smoking_results = pLoF_mis_smoking_results %>%
+    left_join(chr_sizes, by = "CHR") %>%  
+  group_by(CHR) %>%
+  mutate(BP = seq(from = 1, by = CHR_SIZE[1] / (n() * 2), length.out = n())) %>%
+  ungroup() %>%
+  mutate(SNP = Gene)
+ 
+pLoF_mis_infectious_results = fread(paste0("/lindstroem/austin_working/Dissertation/Meta/Aim1/cancer_groups/pLoF_missense_meta_infectious.txt"))
+ pLoF_mis_infectious_results = pLoF_mis_infectious_results %>%
+    left_join(chr_sizes, by = "CHR") %>%  
+  group_by(CHR) %>%
+  mutate(BP = seq(from = 1, by = CHR_SIZE[1] / (n() * 2), length.out = n())) %>%
+  ungroup() %>%
+  mutate(SNP = Gene)
+ 
+```
+
+```{r gene Manhattan pLoF_missense, dpi=1000, width = 24, height = 16}
+# Name the datasets to control order
+pLoF_mis_dataset_list <- list(
+  "Ectoderm-derived tissue cancers" = pLoF_mis_ectoderm_results,
+  "Mesoderm-derived tissue cancers" = pLoF_mis_mesoderm_results,
+  "Endoderm-derived tissue cancers" = pLoF_mis_endoderm_results,
+  "Hormone-associated cancers" = pLoF_mis_hormone_results,
+  "Smoking-associated cancers" = pLoF_mis_smoking_results,
+  "Infectious agent-associated cancers" = pLoF_mis_infectious_results
+)
+
+# Use the names as legend labels, order is preserved
+dataset_names <- names(pLoF_mis_dataset_list)
+
+# Plot
+pLoF_mis = topr::manhattan(pLoF_mis_dataset_list,
+                ntop = 6,
+                sign_thresh = round(sig_thresh, 9),
+                label_size = 3,
+                shape = 16,
+color = c("firebrick3",   
+            "darkorange",   
+            "dodgerblue3",  
+            "darkgreen",    
+            "magenta3",   
+            "black"),
+                sign_thresh_label_size = 0,
+                legend_labels = dataset_names,
+                region_size = 10,
+                downsample_prop = 0.3,
+                size = 1.5,
+                even_no_chr_lightness = 0.7,
+                legend_text_size = 12
+)  
+
+pLoF_mis
+```
+
+```{r combined_Manhattan}
+combined_plot <- pLoF / mis / pLoF_mis + 
+  plot_annotation(tag_levels = 'A') & 
+  theme(plot.tag = element_text(size = 24, face = "bold"))
+
+ggsave("multi_overlayed_Manhattan_plot.jpg", combined_plot,
+       width = 12, height = 20, dpi = 1200)
+```
