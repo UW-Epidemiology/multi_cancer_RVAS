@@ -1,0 +1,75 @@
+---
+title: "QQ plots for SAIGE single variant meta-analysis results"
+author: "Austin Hammermeister Suger"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      comment = "", fig.path = 'single_qq/', dev='jpeg',
+                      cache = FALSE)
+knitr::opts_knit$set(eval.after = "fig.cap")
+
+library(pacman)
+
+p_load(rlang, tidyverse, data.table, R.utils,
+       ggplot2,ggpubr)
+```
+
+```{r load_single_results }
+single_results = NULL
+for (j in c("ectoderm",
+            "mesoderm",
+            "endoderm",
+            "hormone",
+            "smoking",
+            "infectious")) {
+  
+  results = fread(paste0("/lindstroem/austin_working/Dissertation/Meta/Aim1/cancer_groups/single_meta_",j,".txt")) %>%
+    mutate(group = j)
+  single_results = rbind.data.frame(single_results,results)
+}
+
+```
+
+```{r custom_qq_function}
+gg_qq <- function(pvector, lambda, N) {
+  observed <- -log10(sort(pvector))
+  expected <- -log10(ppoints(length(pvector)))
+  
+  df <- data.frame(Expected = expected, Observed = observed)
+  
+  ggplot(df, aes(x = Expected, y = Observed)) +
+    geom_point(size = 1, alpha = 0.6) +
+    geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+    labs(title = paste0("λ = ", lambda, "; N variants: ", N),
+         x = "Expected -log10(p)",
+         y = "Observed -log10(p)") +
+    theme_minimal() +
+    theme(plot.title = element_text(size = 10))
+}
+```
+
+
+```{r QQ, dpi=400}
+qq_plots <- single_results %>%
+  group_by(group) %>%
+  group_split() %>%
+  imap(~{
+    N <- nrow(.x)
+    chisq_vals <- qchisq(1 - .x$P, df = 1)  
+    lambda_gc <- round(median(chisq_vals, na.rm = TRUE) / qchisq(0.5, 1), 3)
+    gg_qq(pvector = .x$P, lambda = lambda_gc, N = N)
+  })
+
+plot = ggarrange(plotlist = qq_plots,
+          ncol = 2, nrow = 3,
+          labels = "AUTO")
+
+ggsave("single/single_QQ.jpeg",
+       plot = plot,
+       width = 6,
+       height = 10,
+       dpi = 400)
+```
