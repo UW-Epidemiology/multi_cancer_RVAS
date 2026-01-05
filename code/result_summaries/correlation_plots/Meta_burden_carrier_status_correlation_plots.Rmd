@@ -1,0 +1,187 @@
+---
+title: "Correlations for burden test and carrier status OR estimate correlations across individual cancer types and genes"
+author: "Austin Hammermeister Suger"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      comment = "", fig.path = 'figures/heatmaps/', dev='jpeg',
+                      cache = FALSE)
+knitr::opts_knit$set(eval.after = "fig.cap")
+library(pacman)
+
+p_load(rlang, tidyverse, data.table,
+       R.utils,
+       ggplot2, ggrepel,
+       stringi, pheatmap,
+       RColorBrewer, reshape2,
+       purre)
+
+```
+
+```{r load}
+single_burden_results = fread("/lindstroem/austin_working/Dissertation/Meta/Aim1/individual_cancers/individual_cancers_meta.txt") %>%
+  filter(Group %in% c("pLoF","missense")) %>%
+  mutate(Burden_OR = exp(BETA),
+         Burden_OR_CI_LB = exp(BETA_CI_LB),
+         Burden_OR_CI_UP = exp(BETA_CI_UP),
+         Burden_P = P) %>%
+  select(c(Gene, Group, Cancer, Burden_OR, Burden_OR_CI_LB, Burden_OR_CI_UP, Burden_P))
+single_carrier_results = fread("/lindstroem/austin_working/Dissertation/Meta/Aim1/individual_cancers/individual_cancers_carrier_status_meta.txt") %>%
+  select(c(Gene, Group, Cancer, Carrier_OR, Carrier_OR_CI_LB, Carrier_OR_CI_UP, Carrier_P))
+single_ClinVar_carrier_results = fread("/lindstroem/austin_working/Dissertation/Meta/Aim1/individual_cancers/individual_cancers_ClinVar_carrier_status_meta.txt") %>%
+  select(c(Gene, Group, Cancer, ClinVar_Carrier_OR, ClinVar_Carrier_OR_CI_LB, ClinVar_Carrier_OR_CI_UP, ClinVar_Carrier_P))
+
+burden_carrier = merge(single_burden_results, single_carrier_results,
+                       by = c("Gene", "Cancer", "Group"))
+
+carrier_ClinVar_carrier = merge(single_carrier_results, single_ClinVar_carrier_results,
+                       by = c("Gene", "Cancer", "Group"))
+```
+
+
+# Correlations by cancer across genes
+
+```{r by cancer, width=10, height=10, dpi=800}
+# ---- Helper: compute Spearman correlations by Cancer ----
+cor_by_group <- function(df, x, y, label) {
+  df %>%
+    group_by(Cancer) %>%
+    filter(sum(complete.cases({{x}}, {{y}})) >= 10) %>%  # keep groups with ≥10 complete pairs
+    summarize(
+      !!label := cor({{x}}, {{y}}, method = "spearman", use = "complete.obs"),
+      .groups = "drop"
+    )
+}
+
+# ---- Compute and merge all correlations ----
+data <- list(
+  cor_by_group(burden_carrier %>% filter(Group == "pLoF"),
+               Burden_OR, Carrier_OR, "ρ_pLoF_burden_carrier"),
+  cor_by_group(carrier_ClinVar_carrier %>% filter(Group == "pLoF"),
+               ClinVar_Carrier_OR, Carrier_OR, "ρ_pLoF_ClinVar_carrier"),
+  cor_by_group(burden_carrier %>% filter(Group == "missense"),
+               Burden_OR, Carrier_OR, "ρ_missense_burden_carrier"),
+  cor_by_group(carrier_ClinVar_carrier %>% filter(Group == "missense"),
+               ClinVar_Carrier_OR, Carrier_OR, "ρ_missense_ClinVar_carrier")
+) %>%
+  purrr::reduce(full_join, by = "Cancer")
+
+colnames(data) = c("Cancer","pLoF: burden | binary",
+                        "pLoF: ClinVar binary | binary",
+                        "Missense: burden | binary",
+                        "Missense: ClinVar binary | binary")
+# Plot #
+plot_data <- data %>%
+  pivot_longer(
+    cols = -Cancer,
+    names_to = "Comparison",
+    values_to = "Correlation"
+  )
+
+# Order cancers by average correlation
+plot_data <- plot_data %>%
+  group_by(Cancer) %>%
+  mutate(median_corr = median(Correlation, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(Cancer = factor(Cancer, levels = unique(Cancer[order(median_corr)])))
+
+# ---- Plot with NA labels for missing cells ----
+plot <- ggplot(plot_data, aes(x = Comparison, y = Cancer, fill = Correlation)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  geom_text(aes(label = ifelse(is.na(Correlation), "NA", round(Correlation, 2))),
+            size = 3, color = "black") +
+  scale_fill_gradient2(
+    low = "#4575b4", mid = "white", high = "#d73027",
+    midpoint = 0, limits = c(-1, 1),
+    name = "Spearman ρ",
+    na.value = "grey90"  # optional: fill color for NA cells
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid = element_blank(),
+    axis.title = element_blank()
+  )
+
+ggsave(
+  "./figures/correlations/Cancer_OR_correlations.jpeg",
+  plot,
+  width = 8, height = 12, dpi = 800
+)
+```
+
+# Correlations by gene across cancers
+
+```{r by gene, width=10, height=10, dpi=800}
+# ---- Helper: compute Spearman correlations by gene ----
+cor_by_group <- function(df, x, y, label) {
+  df %>%
+    group_by(Gene) %>%
+    filter(sum(complete.cases({{x}}, {{y}})) >= 10) %>%  # keep groups with ≥10 complete pairs
+    summarize(
+      !!label := cor({{x}}, {{y}}, method = "spearman", use = "complete.obs"),
+      .groups = "drop"
+    )
+}
+
+# ---- Compute and merge all correlations ----
+data <- list(
+  cor_by_group(burden_carrier %>% filter(Group == "pLoF"),
+               Burden_OR, Carrier_OR, "ρ_pLoF_burden_carrier"),
+  cor_by_group(carrier_ClinVar_carrier %>% filter(Group == "pLoF"),
+               ClinVar_Carrier_OR, Carrier_OR, "ρ_pLoF_ClinVar_carrier"),
+  cor_by_group(burden_carrier %>% filter(Group == "missense"),
+               Burden_OR, Carrier_OR, "ρ_missense_burden_carrier"),
+  cor_by_group(carrier_ClinVar_carrier %>% filter(Group == "missense"),
+               ClinVar_Carrier_OR, Carrier_OR, "ρ_missense_ClinVar_carrier")
+) %>%
+  purrr::reduce(full_join, by = "Gene")
+
+colnames(data) = c("Gene","pLoF: burden | binary",
+                        "pLoF: ClinVar binary | binary",
+                        "Missense: burden | binary",
+                        "Missense: ClinVar binary | binary")
+# Plot #
+plot_data <- data %>%
+  pivot_longer(
+    cols = -Gene,
+    names_to = "Comparison",
+    values_to = "Correlation"
+  )
+
+# Order cancers by average correlation
+plot_data <- plot_data %>%
+  group_by(Gene) %>%
+  mutate(median_corr = median(Correlation, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(Gene = factor(Gene, levels = unique(Gene[order(median_corr)])))
+
+# ---- Plot with NA labels for missing cells ----
+plot <- ggplot(plot_data, aes(x = Comparison, y = Gene, fill = Correlation)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  geom_text(aes(label = ifelse(is.na(Correlation), "NA", round(Correlation, 2))),
+            size = 3, color = "black") +
+  scale_fill_gradient2(
+    low = "#4575b4", mid = "white", high = "#d73027",
+    midpoint = 0, limits = c(-1, 1),
+    name = "Spearman ρ",
+    na.value = "grey90"  # optional: fill color for NA cells
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid = element_blank(),
+    axis.title = element_blank()
+  )
+
+ggsave(
+  "./figures/correlations/Gene_OR_correlations.jpeg",
+  plot,
+  width = 8, height = 12, dpi = 800
+)
+```
+
+

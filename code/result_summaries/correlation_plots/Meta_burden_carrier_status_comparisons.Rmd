@@ -1,0 +1,245 @@
+---
+title: "Overall comparison of effect estimates from burden tests and carrier status analyses"
+author: "Austin Hammermeister Suger"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      comment = "", fig.path = 'figures/forest/', dev='jpeg',
+                      cache = FALSE)
+knitr::opts_knit$set(eval.after = "fig.cap")
+library(pacman)
+
+p_load(rlang, tidyverse, data.table,
+       reactable, R.utils,
+       ggplot2, ggrepel,
+       fastqq, stringi, topr,
+       RColorBrewer, cowplot,
+       ggtext)
+
+p_load_gh("roman-tremmel/ggfastman")
+```
+
+```{r data}
+single_burden_results = fread("/lindstroem/austin_working/Dissertation/Meta/Aim1/individual_cancers/individual_cancers_meta.txt") %>%
+  filter(Group %in% c("pLoF","missense")) %>%
+  mutate(Burden_OR = exp(BETA),
+         Burden_OR_CI_LB = exp(BETA_CI_LB),
+         Burden_OR_CI_UP = exp(BETA_CI_UP),
+         Burden_P = P) %>%
+  select(c(Gene, Group, Cancer, Burden_OR, Burden_OR_CI_LB, Burden_OR_CI_UP, Burden_P))
+single_carrier_results = fread("/lindstroem/austin_working/Dissertation/Meta/Aim1/individual_cancers/individual_cancers_carrier_status_meta.txt") %>%
+  select(c(Gene, Group, Cancer, Carrier_OR, Carrier_OR_CI_LB, Carrier_OR_CI_UP, Carrier_P))
+single_ClinVar_carrier_results = fread("/lindstroem/austin_working/Dissertation/Meta/Aim1/individual_cancers/individual_cancers_ClinVar_carrier_status_meta.txt") %>%
+  select(c(Gene, Group, Cancer, ClinVar_Carrier_OR, ClinVar_Carrier_OR_CI_LB, ClinVar_Carrier_OR_CI_UP, ClinVar_Carrier_P))
+
+burden_carrier = merge(single_burden_results, single_carrier_results,
+                       by = c("Gene", "Cancer", "Group"))
+
+carrier_ClinVar_carrier = merge(single_carrier_results, single_ClinVar_carrier_results,
+                       by = c("Gene", "Cancer", "Group"))
+```
+
+# Burden ORs vs. carrier status ORs {.tabset}
+- Burden tests from SAIGE-GENE
+  - Adjusted for age, genetic sex (where applicable), PCs 1-20 (UKB) or PCs 1-30 (AoU) + sparse GRM random effects
+  - All variant annotation set combinations tested (pLoF, missense, synonymous, all, pLoF+missense, missense+synonymous)
+- Carrier status tests using Firth's penalized logistic regression models (using 	brglm R package v0.7.3)
+  - Adjusted for age, genetic sex (where applicable), PCs 1-20 (UKB) or PCs 1-30 (AoU)
+  - Only pLoF and missense variant sets were tested
+  - We did not run analyses when the number of carrier cases in a gene was 0.
+- All meta-analyses used a fixed effect method.
+- 1,408 pLoF and missense variant burden tests and carrier status regression analyses were performed and meta-analyzed across the 27 cancers for 33 genes
+
+## By group
+
+```{r burden_carrier_by_group_overall, height = 10, width = 10, dpi=500}
+# ---- Compute correlation per group ----
+cor_by_group <- burden_carrier %>%
+  group_by(Group) %>%
+  summarize(
+    spearman_r = cor(Burden_OR, Carrier_OR, method = "spearman", use = "complete.obs"),
+    .groups = "drop"
+  )
+
+# ---- Create facet labels with correlation ----
+facet_labels <- cor_by_group %>%
+  select(Group, spearman_r) %>%                         # ensure exactly two columns
+  mutate(label = paste0(Group, "\nρ = ", round(spearman_r, 3))) %>%
+  select(Group, label) %>%
+  deframe()                                            # names = Group, values = label
+
+# ---- Define colors for significance levels ----
+sig_colors <- c(
+  "Burden and binary P < 2.5e-4" = "#D73027",
+  "Burden P < 2.5e-4"             = "#4575B4",  
+  "Burden and binary P < 0.05"   = "#FC8D59",  
+  "Burden P < 0.05"               = "#91BFDB"
+)
+
+# ---- Add significance level ----
+plot_data <- burden_carrier %>%
+  mutate(
+    sig_level = case_when(
+      Burden_P < 0.00025 & Carrier_P < 0.00025 ~ "Burden and binary P < 2.5e-4",
+      Burden_P < 0.00025 ~ "Burden P < 2.5e-4",
+      Burden_P < 0.05 & Carrier_P < 0.05 ~ "Burden and binary P < 0.05",
+      Burden_P < 0.05 ~ "Burden P < 0.05",
+      TRUE ~ NA_character_
+    ),
+    sig_level = factor(sig_level, levels = names(sig_colors))
+  )
+
+# ---- Plot ----
+plot = ggplot(plot_data, aes(x = Burden_OR, y = Carrier_OR, color = sig_level)) +
+  
+  # Error bars
+  geom_errorbar(aes(ymin = Carrier_OR_CI_LB, ymax = Carrier_OR_CI_UP),
+                width = 0, color = "gray80", alpha = 0.4, linewidth = 0.8) +
+  geom_errorbarh(aes(xmin = Burden_OR_CI_LB, xmax = Burden_OR_CI_UP),
+                 height = 0, color = "gray80", alpha = 0.4, linewidth = 0.8) +
+  
+  # Points
+  geom_point(alpha = 0.7, size = 2) +
+  scale_y_log10(
+    breaks = c(0.25 ,0.5, 0.75, 1, 2, 5, 10, 20, 50, 100),
+    labels = c("0.25","0.5","0.75","1","2","5","10","20","50","100")
+    ) +
+  scale_x_log10(
+    breaks = c(0.9, 1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7),
+    labels = c("0.9","1", "1.1","1.2", "1.3", "1.4", "1.5", "1.6", 1.7)
+    ) +
+
+  
+  # Reference lines
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray40") +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "black") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "black") +
+  
+  
+  # Facet by Group with custom labels including correlations
+  facet_wrap(~ Group, scales = "free", labeller = labeller(Group = facet_labels)) +
+  
+  # Labels & theme
+  labs(x = "Burden test OR",
+       y = "Binary rare variant status OR",
+       color = "Significance") +
+  scale_color_manual(values = sig_colors, na.value = "gray50") +
+  theme_classic(base_size = 14) +
+  theme(
+    legend.position = "bottom",
+    strip.text = element_text(face = "bold", size = 12)
+  )
+
+ggsave(
+  "./figures/correlations/Overall_burden_carrier_correlations.jpeg",
+  plot,
+  width = 12, height = 12, dpi = 800
+)
+```
+
+
+
+
+# Carrier status ORs and ClinVar carrier status ORs {.tabset}
+
+- Carrier status tests using Firth's penalized logistic regression models (using 	brglm R package v0.7.3)
+  - Adjusted for age, genetic sex (where applicable), PCs 1-20 (UKB) or PCs 1-30 (AoU)
+  - Only pLoF and missense variant sets were tested
+  - Did not run analyses when the number of carrier cases in a gene was 0.
+- ClinVar variant carrier status tests restricted to variants with P/LP annotations from ClinVar
+  - Matching annotations: "pathogenic", "likely_pathogenic", "pathogenic/likely_pathogenic"
+  - Excluded annotations: "conflicting_interpretations_of_pathogenicity"
+- All meta-analyses used a fixed effect method.
+- We performed and meta-analyzed 1,408 carrier status analyses of pLoF and missense variant burden test  across the 27 cancers for 32 genes.
+- We performed 566 ClinVar carrier status analyses (many genes had no cases who carrier a ClinVar P/LP variant).
+
+
+## By group
+
+```{r carrier_ClinVar_carrier_by_group_overall, height = 10, width = 10, dpi=500}
+# ---- Compute correlation per group ----
+cor_by_group <- carrier_ClinVar_carrier %>%
+  group_by(Group) %>%
+  summarize(
+    spearman_r = cor(ClinVar_Carrier_OR, Carrier_OR, method = "spearman", use = "complete.obs"),
+    .groups = "drop"
+  )
+
+# ---- Create facet labels with correlation ----
+facet_labels <- cor_by_group %>%
+  select(Group, spearman_r) %>%                         # ensure exactly two columns
+  mutate(label = paste0(Group, "\nρ = ", round(spearman_r, 3))) %>%
+  select(Group, label) %>%
+  deframe()                                            # names = Group, values = label
+
+# ---- Define colors for significance levels ----
+sig_colors <- c(
+  "ClinVar binary and binary P < 2.5e-4" = "#D73027",
+  "ClinVar binary P < 2.5e-4"             = "#4575B4",  
+  "ClinVar binary and binary P < 0.05"   = "#FC8D59",  
+  "ClinVar binary P < 0.05"               = "#91BFDB"
+)
+
+# ---- Add significance level ----
+plot_data <- carrier_ClinVar_carrier %>%
+  mutate(
+    sig_level = case_when(
+      ClinVar_Carrier_P < 0.00025 & Carrier_P < 0.00025 ~ "ClinVar binary and binary P < 2.5e-4",
+      ClinVar_Carrier_P < 0.00025 ~ "ClinVar binary P < 2.5e-4",
+      ClinVar_Carrier_P < 0.05 & Carrier_P < 0.05 ~ "ClinVar binary and binary P < 0.05",
+      ClinVar_Carrier_P < 0.05 ~ "ClinVar binary P < 0.05",
+      TRUE ~ NA_character_
+    ),
+    sig_level = factor(sig_level, levels = names(sig_colors))
+  )
+
+# ---- Plot ----
+plot = ggplot(plot_data, aes(x = ClinVar_Carrier_OR, y = Carrier_OR, color = sig_level)) +
+  
+  # Error bars
+  geom_errorbar(aes(ymin = Carrier_OR_CI_LB, ymax = Carrier_OR_CI_UP),
+                width = 0, color = "gray80", alpha = 0.4, linewidth = 0.8) +
+  geom_errorbarh(aes(xmin = ClinVar_Carrier_OR_CI_LB, xmax = ClinVar_Carrier_OR_CI_UP),
+                 height = 0, color = "gray80", alpha = 0.4, linewidth = 0.8) +
+  
+  # Points
+  geom_point(alpha = 0.7, size = 2) +
+  scale_y_log10(
+    breaks = c(0.25,0.5, 0.75, 1, 2, 5, 10, 20, 50, 100),
+    labels = c("0.25","0.5","0.75","1","2","5","10","20","50","100")
+    ) +
+  scale_x_log10(
+    breaks = c(0.25, 0.5, 0.75, 1, 2, 5, 10, 20, 50, 100),
+    labels = c("0.25","0.5","0.75","1","2","5","10","20","50","100")
+    ) +
+
+  
+  # Reference lines
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray40") +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "black") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "black") +
+  
+  
+  # Facet by Group with custom labels including correlations
+  facet_wrap(~ Group, scales = "free", labeller = labeller(Group = facet_labels)) +
+  
+  # Labels & theme
+  labs(x = "Binary ClinVar rare variant status OR",
+       y = "Binary rare variant status OR",
+       color = "Significance") +
+  scale_color_manual(values = sig_colors, na.value = "gray50") +
+  theme_classic(base_size = 14) +
+  theme(
+    legend.position = "bottom",
+    strip.text = element_text(face = "bold", size = 12)
+  )
+
+ggsave(
+  "./figures/correlations/Overall_carrier_ClinVar_carrier_correlations.jpeg",
+  plot,
+  width = 12, height = 12, dpi = 800
+)
+```
