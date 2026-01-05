@@ -1,0 +1,297 @@
+---
+title: "QQ plots for SAIGE single variant results in AoU"
+author: "Austin Hammermeister Suger"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      comment = "", fig.path = 'single_qq/', dev='jpeg',
+                      cache = FALSE)
+knitr::opts_knit$set(eval.after = "fig.cap")
+
+library(pacman)
+
+p_load(rlang, tidyverse, data.table, R.utils,
+       ggplot2, gridExtra, purrr, cowplot)
+```
+
+```{r load_single_results }
+for (j in c("ectoderm",
+            "mesoderm",
+            "endoderm",
+            "hormone",
+            "smoking",
+            "infectious")) {
+  
+  single_results = NULL
+  for (i in 1:22) {
+      chr_results = fread(paste0("/lindstroem/austin_working/Dissertation/AoU/gene_based_results/cancer_groups/sparse_GRM/chr",i,"_",j,"_SAIGE_results.txt.singleAssoc.txt")) %>%
+                filter((AF_Allele2 < 0.01 | AF_Allele2 > 0.99) == TRUE)
+  single_results = rbind.data.frame(single_results,chr_results)
+  }
+
+single_results = single_results %>%
+  filter(!CHR == "UR") 
+assign( paste0(j,"_single_results"), single_results)
+}
+
+```
+
+```{r custom_qq_function}
+# Convert p-values to expected vs observed -log10(p)
+gg_qq <- function(pvector, main) {
+  observed <- -log10(sort(pvector))
+  expected <- -log10(ppoints(length(pvector)))
+  
+  df <- data.frame(Expected = expected, Observed = observed)
+  
+  ggplot(df, aes(x = Expected, y = Observed)) +
+    geom_point(size = 1, alpha = 0.6) +
+    geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+    labs(title = main,
+         x = "Expected -log10(p)",
+         y = "Observed -log10(p)") +
+    theme_minimal()+
+    theme(
+      plot.title = element_text(size = 10)  
+    )
+}
+```
+
+
+```{r MAC_QQ_ectoderm, dpi=400}
+# Stratify by MAC quartile
+ectoderm_single_results <- ectoderm_single_results %>%
+  mutate(Max_alleles = 2 * (N_case + N_ctrl),
+         MAC = ifelse(AC_Allele2 <= (0.5 * Max_alleles), AC_Allele2, Max_alleles - AC_Allele2),
+         MAC_quartile = ntile(MAC, 4))
+
+# Generate QQ plots with MAC range and variant count in the title
+qq_plots <- ectoderm_single_results %>%
+  group_by(MAC_quartile) %>%
+  group_split() %>%
+  imap(~{
+    if (nrow(.x) == 0) return(NULL)
+    chisq_vals <- qchisq(1 - .x$p.value, df = 1)
+    lambda_gc <- round(median(chisq_vals, na.rm = TRUE) / qchisq(0.5, 1), 3)
+    MAC_range <- range(.x$MAC, na.rm = TRUE)
+    n_variants <- sum(!is.na(.x$p.value))
+    plot_title <- paste0(
+      "MAC range: ", MAC_range[1], " - ", MAC_range[2],
+      "\nVariants in quartile: ", n_variants, "; λ = ", lambda_gc
+    )
+
+    p <- gg_qq(pvector = .x$p.value, main = plot_title)  
+    if (!inherits(p, "gg")) stop("gg_qq did not return a ggplot object")
+    p
+  }) %>% compact()
+
+# Arrange with labels A-D
+final_plot <- cowplot::plot_grid(
+  plotlist = qq_plots,
+  labels = c("A", "B", "C", "D"),
+  label_size = 16,
+  ncol = 2
+)
+
+# Display
+print(final_plot)
+```
+
+
+```{r MAC_QQ_mesoderm, dpi=400}
+# Stratify by MAC quartile
+mesoderm_single_results <- mesoderm_single_results %>%
+  mutate(Max_alleles = 2 * (N_case + N_ctrl),
+         MAC = ifelse(AC_Allele2 <= (0.5 * Max_alleles), AC_Allele2, Max_alleles - AC_Allele2),
+         MAC_quartile = ntile(MAC, 4))
+
+# Generate QQ plots with MAC range and variant count in the title
+qq_plots <- mesoderm_single_results %>%
+  group_by(MAC_quartile) %>%
+  group_split() %>%
+  imap(~{
+    if (nrow(.x) == 0) return(NULL)
+    chisq_vals <- qchisq(1 - .x$p.value, df = 1)
+    lambda_gc <- round(median(chisq_vals, na.rm = TRUE) / qchisq(0.5, 1), 3)
+    MAC_range <- range(.x$MAC, na.rm = TRUE)
+    n_variants <- sum(!is.na(.x$p.value))
+    plot_title <- paste0(
+      "MAC range: ", MAC_range[1], " - ", MAC_range[2],
+      "\nVariants in quartile: ", n_variants, "; λ = ", lambda_gc
+    )
+
+    p <- gg_qq(pvector = .x$p.value, main = plot_title)  
+    if (!inherits(p, "gg")) stop("gg_qq did not return a ggplot object")
+    p
+  }) %>% compact()
+
+# Arrange with labels A-D
+final_plot <- cowplot::plot_grid(
+  plotlist = qq_plots,
+  labels = c("A", "B", "C", "D"),
+  label_size = 16,
+  ncol = 2
+)
+
+# Display
+print(final_plot)
+```
+
+```{r MAC_QQ_endoderm, dpi=400}
+# Stratify by MAC quartile
+endoderm_single_results <- endoderm_single_results %>%
+  mutate(Max_alleles = 2 * (N_case + N_ctrl),
+         MAC = ifelse(AC_Allele2 <= (0.5 * Max_alleles), AC_Allele2, Max_alleles - AC_Allele2),
+         MAC_quartile = ntile(MAC, 4))
+
+# Generate QQ plots with MAC range and variant count in the title
+qq_plots <- endoderm_single_results %>%
+  group_by(MAC_quartile) %>%
+  group_split() %>%
+  imap(~{
+    if (nrow(.x) == 0) return(NULL)
+    chisq_vals <- qchisq(1 - .x$p.value, df = 1)
+    lambda_gc <- round(median(chisq_vals, na.rm = TRUE) / qchisq(0.5, 1), 3)
+    MAC_range <- range(.x$MAC, na.rm = TRUE)
+    n_variants <- sum(!is.na(.x$p.value))
+    plot_title <- paste0(
+      "MAC range: ", MAC_range[1], " - ", MAC_range[2],
+      "\nVariants in quartile: ", n_variants, "; λ = ", lambda_gc
+    )
+
+    p <- gg_qq(pvector = .x$p.value, main = plot_title)  
+    if (!inherits(p, "gg")) stop("gg_qq did not return a ggplot object")
+    p
+  }) %>% compact()
+
+# Arrange with labels A-D
+final_plot <- cowplot::plot_grid(
+  plotlist = qq_plots,
+  labels = c("A", "B", "C", "D"),
+  label_size = 16,
+  ncol = 2
+)
+
+# Display
+print(final_plot)
+```
+
+```{r MAC_QQ_hormone, dpi=400}
+# Stratify by MAC quartile
+hormone_single_results <- hormone_single_results %>%
+  mutate(Max_alleles = 2 * (N_case + N_ctrl),
+         MAC = ifelse(AC_Allele2 <= (0.5 * Max_alleles), AC_Allele2, Max_alleles - AC_Allele2),
+         MAC_quartile = ntile(MAC, 4))
+
+# Generate QQ plots with MAC range and variant count in the title
+qq_plots <- hormone_single_results %>%
+  group_by(MAC_quartile) %>%
+  group_split() %>%
+  imap(~{
+    if (nrow(.x) == 0) return(NULL)
+    chisq_vals <- qchisq(1 - .x$p.value, df = 1)
+    lambda_gc <- round(median(chisq_vals, na.rm = TRUE) / qchisq(0.5, 1), 3)
+    MAC_range <- range(.x$MAC, na.rm = TRUE)
+    n_variants <- sum(!is.na(.x$p.value))
+    plot_title <- paste0(
+      "MAC range: ", MAC_range[1], " - ", MAC_range[2],
+      "\nVariants in quartile: ", n_variants, "; λ = ", lambda_gc
+    )
+
+    p <- gg_qq(pvector = .x$p.value, main = plot_title)  
+    if (!inherits(p, "gg")) stop("gg_qq did not return a ggplot object")
+    p
+  }) %>% compact()
+
+# Arrange with labels A-D
+final_plot <- cowplot::plot_grid(
+  plotlist = qq_plots,
+  labels = c("A", "B", "C", "D"),
+  label_size = 16,
+  ncol = 2
+)
+
+# Display
+print(final_plot)
+```
+
+```{r MAC_QQ_smoking, dpi=400}
+# Stratify by MAC quartile
+smoking_single_results <- smoking_single_results %>%
+  mutate(Max_alleles = 2 * (N_case + N_ctrl),
+         MAC = ifelse(AC_Allele2 <= (0.5 * Max_alleles), AC_Allele2, Max_alleles - AC_Allele2),
+         MAC_quartile = ntile(MAC, 4))
+
+# Generate QQ plots with MAC range and variant count in the title
+qq_plots <- smoking_single_results %>%
+  group_by(MAC_quartile) %>%
+  group_split() %>%
+  imap(~{
+    if (nrow(.x) == 0) return(NULL)
+    chisq_vals <- qchisq(1 - .x$p.value, df = 1)
+    lambda_gc <- round(median(chisq_vals, na.rm = TRUE) / qchisq(0.5, 1), 3)
+    MAC_range <- range(.x$MAC, na.rm = TRUE)
+    n_variants <- sum(!is.na(.x$p.value))
+    plot_title <- paste0(
+      "MAC range: ", MAC_range[1], " - ", MAC_range[2],
+      "\nVariants in quartile: ", n_variants, "; λ = ", lambda_gc
+    )
+
+    p <- gg_qq(pvector = .x$p.value, main = plot_title)  
+    if (!inherits(p, "gg")) stop("gg_qq did not return a ggplot object")
+    p
+  }) %>% compact()
+
+# Arrange with labels A-D
+final_plot <- cowplot::plot_grid(
+  plotlist = qq_plots,
+  labels = c("A", "B", "C", "D"),
+  label_size = 16,
+  ncol = 2
+)
+
+# Display
+print(final_plot)
+```
+
+```{r MAC_QQ_infectious, dpi=400}
+# Stratify by MAC quartile
+infectious_single_results <- infectious_single_results %>%
+  mutate(Max_alleles = 2 * (N_case + N_ctrl),
+         MAC = ifelse(AC_Allele2 <= (0.5 * Max_alleles), AC_Allele2, Max_alleles - AC_Allele2),
+         MAC_quartile = ntile(MAC, 4))
+
+# Generate QQ plots with MAC range and variant count in the title
+qq_plots <- infectious_single_results %>%
+  group_by(MAC_quartile) %>%
+  group_split() %>%
+  imap(~{
+    if (nrow(.x) == 0) return(NULL)
+    chisq_vals <- qchisq(1 - .x$p.value, df = 1)
+    lambda_gc <- round(median(chisq_vals, na.rm = TRUE) / qchisq(0.5, 1), 3)
+    MAC_range <- range(.x$MAC, na.rm = TRUE)
+    n_variants <- sum(!is.na(.x$p.value))
+    plot_title <- paste0(
+      "MAC range: ", MAC_range[1], " - ", MAC_range[2],
+      "\nVariants in quartile: ", n_variants, "; λ = ", lambda_gc
+    )
+
+    p <- gg_qq(pvector = .x$p.value, main = plot_title)  
+    if (!inherits(p, "gg")) stop("gg_qq did not return a ggplot object")
+    p
+  }) %>% compact()
+
+# Arrange with labels A-D
+final_plot <- cowplot::plot_grid(
+  plotlist = qq_plots,
+  labels = c("A", "B", "C", "D"),
+  label_size = 16,
+  ncol = 2
+)
+
+# Display
+print(final_plot)
+```
