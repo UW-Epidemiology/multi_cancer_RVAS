@@ -22,7 +22,8 @@ p_load(rlang, tidyverse, data.table,
        tidygraph,
        ggnewscale,
        scales,
-       colorspace)
+       colorspace,
+       cowplot)
 ```
 
 ```{r load data}
